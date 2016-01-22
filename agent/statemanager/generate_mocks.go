@@ -11,6 +11,6 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package model
+package statemanager
 
-//go:generate go run ../../gogenerate/awssdk.go -typesOnly=false
+//go:generate mockgen.sh github.com/aws/amazon-ecs-agent/agent/statemanager StateManager mocks/statemanager_mocks.go

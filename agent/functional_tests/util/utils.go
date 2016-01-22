@@ -153,7 +153,10 @@ func RunAgent(t *testing.T, options *AgentOptions) *TestAgent {
 			t.Fatal("Could not launch agent", err)
 		}
 	}
-	agentTempdir, err := ioutil.TempDir("", "ecs_integ_testdata")
+
+	tmpdirOverride := os.Getenv("ECS_FTEST_TMP")
+
+	agentTempdir, err := ioutil.TempDir(tmpdirOverride, "ecs_integ_testdata")
 	if err != nil {
 		t.Fatal("Could not create temp dir for test")
 	}
@@ -284,7 +287,12 @@ func (agent *TestAgent) StartAgent() error {
 
 func (agent *TestAgent) Cleanup() {
 	agent.StopAgent()
-	os.RemoveAll(agent.TestDir)
+	if agent.t.Failed() {
+		agent.t.Logf("Preserving test dir for failed test %s", agent.TestDir)
+	} else {
+		agent.t.Logf("Removing test dir for passed test %s", agent.TestDir)
+		os.RemoveAll(agent.TestDir)
+	}
 	ECS.DeregisterContainerInstance(&ecs.DeregisterContainerInstanceInput{
 		Cluster:           &agent.Cluster,
 		ContainerInstance: &agent.ContainerInstanceArn,
@@ -506,4 +514,26 @@ func (task *TestTask) Stop() error {
 		Task:    task.TaskArn,
 	})
 	return err
+}
+
+func RequireDockerVersion(t *testing.T, selector string) {
+	dockerClient, err := docker.NewClientFromEnv()
+	if err != nil {
+		t.Fatalf("Could not get docker client to check version: %v", err)
+	}
+	dockerVersion, err := dockerClient.Version()
+	if err != nil {
+		t.Fatalf("Could not get docker version: %v", err)
+	}
+
+	version := dockerVersion.Get("Version")
+
+	match, err := Version(version).Matches(selector)
+	if err != nil {
+		t.Fatalf("Could not check docker version to match required: %v", err)
+	}
+
+	if !match {
+		t.Skipf("Skipping test; requires %v, but version is %v", selector, version)
+	}
 }

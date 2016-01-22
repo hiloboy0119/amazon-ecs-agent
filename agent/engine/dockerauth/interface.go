@@ -11,6 +11,15 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package model
+// Package dockerauth handles storing auth configuration information for Docker
+// registries
+package dockerauth
 
-//go:generate go run ../../gogenerate/awssdk.go -typesOnly=false
+import (
+	docker "github.com/fsouza/go-dockerclient"
+)
+
+// DockerAuthProvider is something that can give the auth information for a given docker image
+type DockerAuthProvider interface {
+	GetAuthconfig(image string) (docker.AuthConfiguration, error)
+}

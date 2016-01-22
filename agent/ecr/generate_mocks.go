@@ -11,6 +11,6 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package model
+package ecr
 
-//go:generate go run ../../gogenerate/awssdk.go -typesOnly=false
+//go:generate mockgen.sh github.com/aws/amazon-ecs-agent/agent/ecr ECRSDK,ECRFactory mocks/ecr_mocks.go

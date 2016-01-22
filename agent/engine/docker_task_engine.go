@@ -29,6 +29,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	utilsync "github.com/aws/amazon-ecs-agent/agent/utils/sync"
+	"github.com/cihub/seelog"
 )
 
 const (
@@ -42,7 +43,8 @@ const (
 type DockerTaskEngine struct {
 	// implements TaskEngine
 
-	cfg *config.Config
+	cfg                *config.Config
+	acceptInsecureCert bool
 
 	initialized  bool
 	mustInitLock sync.Mutex
@@ -77,11 +79,12 @@ type DockerTaskEngine struct {
 // The distinction between created and initialized is that when created it may
 // be serialized/deserialized, but it will not communicate with docker until it
 // is also initialized.
-func NewDockerTaskEngine(cfg *config.Config) *DockerTaskEngine {
+func NewDockerTaskEngine(cfg *config.Config, acceptInsecureCert bool) *DockerTaskEngine {
 	dockerTaskEngine := &DockerTaskEngine{
-		cfg:    cfg,
-		client: nil,
-		saver:  statemanager.NewNoopStateManager(),
+		cfg:                cfg,
+		acceptInsecureCert: acceptInsecureCert,
+		client:             nil,
+		saver:              statemanager.NewNoopStateManager(),
 
 		state:         dockerstate.NewDockerTaskEngineState(),
 		managedTasks:  make(map[string]*managedTask),
@@ -140,7 +143,7 @@ func (engine *DockerTaskEngine) initDockerClient() error {
 	if engine.client != nil {
 		return nil
 	}
-	client, err := NewDockerGoClient(nil, engine.cfg.EngineAuthType, engine.cfg.EngineAuthData)
+	client, err := NewDockerGoClient(nil, engine.cfg.EngineAuthType, engine.cfg.EngineAuthData, engine.acceptInsecureCert)
 	if err != nil {
 		return err
 	}
@@ -420,8 +423,7 @@ func (engine *DockerTaskEngine) ListTasks() ([]*api.Task, error) {
 
 func (engine *DockerTaskEngine) pullContainer(task *api.Task, container *api.Container) DockerContainerMetadata {
 	log.Info("Pulling container", "task", task, "container", container)
-
-	return engine.client.PullImage(container.Image)
+	return engine.client.PullImage(container.Image, container.RegistryAuthentication)
 }
 
 func (engine *DockerTaskEngine) createContainer(task *api.Task, container *api.Container) DockerContainerMetadata {
@@ -468,6 +470,8 @@ func (engine *DockerTaskEngine) createContainer(task *api.Task, container *api.C
 	// we die before 'createContainer' returns because we can inspect by
 	// name
 	engine.state.AddContainer(&api.DockerContainer{DockerName: containerName, Container: container}, task)
+	seelog.Infof("Created container name mapping for task %s - %s -> %s", task, container, containerName)
+	engine.saver.ForceSave()
 
 	hostConfig.NetworkMode = "host"
 	metadata := client.CreateContainer(config, hostConfig, containerName)
@@ -476,7 +480,7 @@ func (engine *DockerTaskEngine) createContainer(task *api.Task, container *api.C
 		return metadata
 	}
 	engine.state.AddContainer(&api.DockerContainer{DockerId: metadata.DockerId, DockerName: containerName, Container: container}, task)
-	log.Info("Created container successfully", "task", task, "container", container)
+	seelog.Infof("Created docker container for task %s: %s -> %s", task, container, metadata.DockerId)
 	return metadata
 }
 
@@ -650,6 +654,10 @@ func (engine *DockerTaskEngine) Capabilities() []string {
 	}
 	if engine.cfg.AppArmorCapable {
 		capabilities = append(capabilities, capabilityPrefix+"apparmor")
+	}
+
+	if _, ok := versions[dockerclient.Version_1_19]; ok {
+		capabilities = append(capabilities, capabilityPrefix+"ecr-auth")
 	}
 
 	return capabilities
